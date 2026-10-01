@@ -87,6 +87,7 @@ html,body{min-height:100%;padding-top:env(safe-area-inset-top);padding-bottom:en
           <option value="last">Letzter Host</option>
           <option value="hosts">Nutzbare Hosts</option>
           <option value="all">Komplettaufgabe</option>
+          <option value="ihk">IHK-IPv4-Training</option>
         </select>
       </div>
       <div>
@@ -95,7 +96,7 @@ html,body{min-height:100%;padding-top:env(safe-area-inset-top);padding-bottom:en
           <option value="easy">Leicht – /24 bis /26</option>
           <option value="medium">Mittel – /27 bis /28</option>
           <option value="hard">Schwer – /29 bis /30</option>
-          <option value="ihk">IHK-Training – gemischt</option>
+          <option value="ihk">IHK-orientiert – /24 bis /30</option>
         </select>
       </div>
     </div>
@@ -162,10 +163,83 @@ function prefixForDifficulty(diff){
   return rand(24,30);
 }
 function maskFromPrefix(p){ return 256 - (2**(32-p)); }
+
+const ihkQuestions = [
+  {q:"Ein Arbeitsplatz hat die IP-Adresse 192.168.10.77/26. Welche Network Address gehört zu diesem Host?",
+   type:"text", answer:"192.168.10.64",
+   explanation:"/26 entspricht der Blockgröße 64. Die Bereiche sind 0–63, 64–127, 128–191 und 192–255. 77 liegt im Bereich 64–127."},
+  {q:"Ein Gerät hat die IP-Adresse 192.168.20.130/27. Welche Broadcast Address gehört zum Subnetz?",
+   type:"text", answer:"192.168.20.159",
+   explanation:"/27 entspricht einer Blockgröße von 32. 130 liegt im Bereich 128–159; die letzte Adresse ist der Broadcast."},
+  {q:"Ein Subnetz verwendet 255.255.255.240. Wie viele nutzbare Host-Adressen stehen zur Verfügung?",
+   type:"number", answer:"14",
+   explanation:"255.255.255.240 = /28. Blockgröße 16, davon 2 reserviert: 16 − 2 = 14 nutzbare Hosts."},
+  {q:"Ein kleines Büro benötigt 30 nutzbare IPv4-Host-Adressen. Welches Präfix ist mindestens erforderlich?",
+   type:"prefix", answer:"/27",
+   explanation:"/27 bietet 32 Adressen insgesamt und 30 nutzbare Hosts. /28 hätte nur 14 nutzbare Hosts."},
+  {q:"192.168.50.0/24 wird in /27-Subnetze aufgeteilt. Wie viele gleich große Subnetze entstehen?",
+   type:"number", answer:"8",
+   explanation:"Von /24 zu /27 werden 3 Bits ausgeliehen: 2³ = 8 Subnetze."},
+  {q:"Welche Adresse ist eine gültige Host-Adresse im Subnetz 10.20.30.64/28?",
+   type:"choice", options:["10.20.30.64","10.20.30.65","10.20.30.79","10.20.30.80"], answer:"10.20.30.65",
+   explanation:"Bei /28 liegt der Bereich bei 64–79. Network ist .64, Broadcast ist .79. Nutzbare Hosts sind .65–.78."},
+  {q:"Ein Server hat 172.16.5.200/27. Welche Network Address gehört dazu?",
+   type:"text", answer:"172.16.5.192",
+   explanation:"/27 hat Blockgröße 32. 200 liegt im Block 192–223."},
+  {q:"Ein Subnetz 192.168.100.96/28 wird verwendet. Welche Adresse ist der letzte nutzbare Host?",
+   type:"text", answer:"192.168.100.110",
+   explanation:"/28: Block 96–111. Network .96, Broadcast .111, letzter Host .110."},
+  {q:"Ein Gerät hat 10.10.10.145/28. Welche Broadcast Address gehört zum Subnetz?",
+   type:"text", answer:"10.10.10.159",
+   explanation:"/28 hat Blockgröße 16. 145 liegt im Bereich 144–159."},
+  {q:"Ein Unternehmen möchte pro Subnetz maximal 6 nutzbare IPv4-Hosts. Welches Präfix passt?",
+   type:"prefix", answer:"/29",
+   explanation:"/29 liefert 8 Adressen insgesamt und 6 nutzbare Host-Adressen."}
+];
+
+let ihkQuestion = null;
+
+function makeIhkTask(){
+  locked=false;
+  ihkQuestion = ihkQuestions[rand(0, ihkQuestions.length-1)];
+  task = {mode:"ihk", prefix:null, mask:null, block:null, base:"", ip:""};
+  $('question').textContent = ihkQuestion.q;
+  $('given').textContent = "IHK-orientierte IPv4-Praxisaufgabe";
+  $('answer').value="";
+  $('answer2').value="";
+  $('extraWrap').classList.add('hidden');
+  $('hint').classList.add('hidden');
+  $('result').innerHTML="Aufgabe bereit.";
+  updateProgress();
+}
+
+function checkIhk(){
+  if(!ihkQuestion || locked) return;
+  attempts++;
+  let a=norm($('answer').value).toLowerCase();
+  let ok=false;
+  if(ihkQuestion.type==="choice"){
+    ok=a===ihkQuestion.answer.toLowerCase();
+  } else {
+    ok=a===ihkQuestion.answer.toLowerCase();
+  }
+  locked=true;
+  if(ok){
+    correct++;
+    $('result').innerHTML=`<span class="ok">✓ Richtig!</span><div class="steps">${ihkQuestion.explanation}</div>`;
+  }else{
+    $('result').innerHTML=`<span class="bad">✗ Falsch.</span><br>Richtige Antwort: <b>${ihkQuestion.answer}</b><div class="steps">${ihkQuestion.explanation}</div>`;
+  }
+  roundCount++;
+  updateStats();
+  updateProgress();
+}
+
 function makeTask(){
   locked=false;
   const mode=$('mode').value, diff=$('difficulty').value;
   roundTotal=Number($('roundSize').value);
+  if(mode==='ihk'){ makeIhkTask(); return; }
   const p=prefixForDifficulty(diff);
   const block=2**(32-p);
   const network=Math.floor(rand(0,255)/block)*block;
@@ -213,6 +287,7 @@ function explain(){
 }
 function check(){
   if(!task){makeTask();return}
+  if(task.mode==='ihk'){checkIhk();return;}
   if(locked)return;
   attempts++;
   const e=expected(), a=norm($('answer').value), a2=norm($('answer2').value);
@@ -238,6 +313,11 @@ function check(){
   updateProgress();
 }
 function hint(){
+  if(task && task.mode==='ihk'){
+    $('hint').classList.remove('hidden');
+    $('hint').textContent='Hinweis: Schreibe zuerst den Prefix bzw. die Subnetzmaske in Gedanken um und bestimme die Blockgröße. Danach ordnest du die IP dem passenden Subnetz zu.';
+    return;
+  }
   if(!task)return;
   $('hint').classList.remove('hidden');
   $('hint').textContent=`Hinweis: 256 − ${task.mask} = ${task.block}. Dann suchst du den Bereich, in dem das letzte Oktett (${task.ip.split('.')[3]}) liegt.`;
