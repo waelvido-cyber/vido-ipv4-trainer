@@ -68,13 +68,9 @@ html,body{min-height:100%;padding-top:env(safe-area-inset-top);padding-bottom:en
 </style>
 
 </head>
+
 <body>
 <div class="wrap">
-  
-<div id="installHint" style="display:none;margin:0 0 12px;padding:12px 14px;border:1px solid rgba(56,189,248,.35);border-radius:12px;background:rgba(8,18,32,.72);color:#e0f2fe;font-size:13px;">
-<strong>iPhone:</strong> Tippe in Safari auf <b>Teilen</b> → <b>Zum Home-Bildschirm</b> → <b>Hinzufügen</b>.
-</div>
-
   <div class="brand">VIDO TECHNOLOGY</div>
   <h1>IPv4 Subnetting Trainer</h1>
   <div class="name">Wael Alaya</div>
@@ -86,9 +82,10 @@ html,body{min-height:100%;padding-top:env(safe-area-inset-top);padding-bottom:en
         <select id="mode">
           <option value="network">Network Address</option>
           <option value="broadcast">Broadcast Address</option>
-          <option value="hosts">Nutzbare Hosts</option>
+          <option value="block">Blockgröße</option>
           <option value="first">1. Host</option>
           <option value="last">Letzter Host</option>
+          <option value="hosts">Nutzbare Hosts</option>
           <option value="all">Komplettaufgabe</option>
         </select>
       </div>
@@ -98,14 +95,30 @@ html,body{min-height:100%;padding-top:env(safe-area-inset-top);padding-bottom:en
           <option value="easy">Leicht – /24 bis /26</option>
           <option value="medium">Mittel – /27 bis /28</option>
           <option value="hard">Schwer – /29 bis /30</option>
+          <option value="ihk">IHK-Training – gemischt</option>
         </select>
       </div>
     </div>
+    <div class="grid" style="margin-top:14px">
+      <div>
+        <label class="label">Fragen pro Runde</label>
+        <select id="roundSize">
+          <option value="10">10</option>
+          <option value="20">20</option>
+          <option value="30">30</option>
+        </select>
+      </div>
+      <div>
+        <label class="label">Punkte</label>
+        <div id="scoreBox" style="padding:12px;border:1px solid var(--border);border-radius:10px;background:rgba(2,8,18,.35);font-weight:700">0 / 0</div>
+      </div>
+    </div>
     <button class="primary" id="newBtn">Neue Aufgabe</button>
+    <button class="secondary" id="resetBtn">Runde zurücksetzen</button>
   </div>
 
   <div class="card">
-    <div class="small">Aufgabe</div>
+    <div class="small">Aufgabe <span id="progress"></span></div>
     <div class="question" id="question">Klicke auf „Neue Aufgabe“.</div>
     <div class="ip" id="given"></div>
   </div>
@@ -114,21 +127,19 @@ html,body{min-height:100%;padding-top:env(safe-area-inset-top);padding-bottom:en
     <div class="grid">
       <div>
         <label class="label">Deine Antwort</label>
-        <input id="answer" placeholder="z. B. 192.168.1.64">
+        <input id="answer" placeholder="z. B. 192.168.1.64" autocomplete="off" autocapitalize="none" spellcheck="false">
       </div>
       <div id="extraWrap" class="hidden">
         <label class="label">Zusätzliche Antwort</label>
-        <input id="answer2" placeholder="z. B. Broadcast / Hosts">
+        <input id="answer2" placeholder="z. B. 192.168.1.127" autocomplete="off" autocapitalize="none" spellcheck="false">
       </div>
     </div>
     <button class="primary" id="checkBtn">Prüfen</button>
     <button class="secondary" id="hintBtn">Hinweis</button>
-    <div id="hint" class="small hidden"></div>
+    <div id="hint" class="small hidden" style="margin-top:10px"></div>
   </div>
 
-  <div class="card result" id="result">
-    Noch keine Antwort geprüft.
-  </div>
+  <div class="card result" id="result">Noch keine Antwort geprüft.</div>
 
   <div class="card">
     <div class="stats">
@@ -141,99 +152,121 @@ html,body{min-height:100%;padding-top:env(safe-area-inset-top);padding-bottom:en
 
 <script>
 const $ = id => document.getElementById(id);
-let task=null, correct=0, attempts=0;
+let task=null, correct=0, attempts=0, roundCount=0, roundTotal=10, locked=false;
 
 function rand(min,max){return Math.floor(Math.random()*(max-min+1))+min}
+function prefixForDifficulty(diff){
+  if(diff==='easy') return rand(24,26);
+  if(diff==='medium') return rand(27,28);
+  if(diff==='hard') return rand(29,30);
+  return rand(24,30);
+}
+function maskFromPrefix(p){ return 256 - (2**(32-p)); }
 function makeTask(){
+  locked=false;
   const mode=$('mode').value, diff=$('difficulty').value;
-  let p;
-  if(diff==='easy') p=rand(24,26);
-  else if(diff==='medium') p=rand(27,28);
-  else p=rand(29,30);
+  roundTotal=Number($('roundSize').value);
+  const p=prefixForDifficulty(diff);
   const block=2**(32-p);
-  const start=Math.floor(rand(0,255)/block)*block;
-  const host=rand(0,block-1);
-  const oct=[rand(10,192),rand(0,254),rand(0,254),start+host];
-  // Keep the common training range private IPv4.
-  oct[0]=10;
-  const base=`${oct[0]}.${oct[1]}.${oct[2]}`;
-  const network=start, broadcast=start+block-1;
-  task={ip:`${base}.${oct[3]}`,prefix:p,mask:255-block+1,block,network,broadcast,
+  const network=Math.floor(rand(0,255)/block)*block;
+  const host=rand(1,Math.max(1,block-2));
+  const oct1=rand(10,10), oct2=rand(0,254), oct3=rand(0,254);
+  const ipOct=network+host;
+  const base=`${oct1}.${oct2}.${oct3}`;
+  const broadcast=network+block-1;
+  const mask=maskFromPrefix(p);
+  task={ip:`${base}.${ipOct}`,prefix:p,mask,block,network,broadcast,
         first:network+1,last:broadcast-1,hosts:Math.max(0,block-2),base,mode};
-  $('given').textContent=`IP-Adresse: ${task.ip}    |    Subnetzmaske: 255.255.255.${task.mask}  (/${p})`;
+  $('given').textContent=`IP-Adresse: ${task.ip}  |  Subnetzmaske: 255.255.255.${task.mask}  (/${p})`;
   const labels={
     network:'Was ist die Network Address?',
     broadcast:'Was ist die Broadcast Address?',
-    hosts:'Wie viele nutzbare Host-Adressen gibt es?',
+    block:'Wie groß ist die Blockgröße?',
     first:'Was ist der 1. Host?',
     last:'Was ist der letzte Host?',
-    all:'Berechne Network, Broadcast und nutzbare Hosts.'
+    hosts:'Wie viele nutzbare Host-Adressen gibt es?',
+    all:'Berechne Network Address und Broadcast Address.'
   };
   $('question').textContent=labels[mode];
-  $('answer').value=''; $('answer2').value=''; $('hint').classList.add('hidden');
+  $('answer').value=''; $('answer2').value='';
+  $('hint').classList.add('hidden');
   $('result').innerHTML='Neue Aufgabe bereit.';
+  $('extraWrap').classList.toggle('hidden', mode!=='all');
+  updateProgress();
 }
 function expected(){
-  if(!task)return null;
   const b=task.base+'.';
-  return {
-    network:b+task.network,
-    broadcast:b+task.broadcast,
-    first:b+task.first,
-    last:b+task.last,
-    hosts:String(task.hosts)
-  };
+  return {network:b+task.network,broadcast:b+task.broadcast,first:b+task.first,last:b+task.last,hosts:String(task.hosts),block:String(task.block)};
 }
 function norm(s){return s.trim().replace(/\s+/g,'')}
+function explain(){
+  const e=expected(), p=task.prefix;
+  const starts=Array.from({length:256/task.block},(_,i)=>i*task.block).join(' / ');
+  return `1. Prefix: /${p}
+2. Blockgröße = 256 − ${task.mask} = ${task.block}
+3. Subnetz-Beginn: ${starts}
+4. ${task.ip.split('.')[3]} liegt im Bereich ${task.network}–${task.broadcast}.
+5. Network Address = ${e.network}
+6. Broadcast Address = ${e.broadcast}
+7. Host-Bereich = ${e.first} – ${e.last}
+8. Nutzbare Hosts = ${task.hosts}`;
+}
 function check(){
   if(!task){makeTask();return}
+  if(locked)return;
   attempts++;
-  const e=expected(), a=norm($('answer').value);
-  let ok=false, msg='';
+  const e=expected(), a=norm($('answer').value), a2=norm($('answer2').value);
+  let ok=false, correctText='';
   if(task.mode==='all'){
-    const a2=norm($('answer2').value);
-    const n=(a.includes(e.network)&&a.includes(e.broadcast)) || (a===e.network && a2===e.broadcast);
-    ok=n;
-    msg=`Network Address: <b>${e.network}</b><br>Broadcast Address: <b>${e.broadcast}</b><br>Nutzbare Hosts: <b>${e.hosts}</b>`;
+    ok=(a===e.network && a2===e.broadcast);
+    correctText=`Network: <b>${e.network}</b><br>Broadcast: <b>${e.broadcast}</b>`;
   } else {
-    const target=e[task.mode]; ok=a===target;
-    msg=`Richtige Antwort: <b>${target}</b>`;
+    const target=e[task.mode];
+    ok=a===target;
+    correctText=`Richtige Antwort: <b>${target}</b>`;
   }
-  if(ok){correct++;$('result').innerHTML=`<span class="ok">✓ Richtig!</span><div class="steps">${explain()}</div>`}
-  else $('result').innerHTML=`<span class="bad">✗ Noch nicht richtig.</span><br><div class="steps">${msg}<br><br>${explain()}</div>`;
+  if(ok){
+    correct++; roundCount++;
+    locked=true;
+    $('result').innerHTML=`<span class="ok">✓ Richtig!</span><div class="steps">${explain()}</div>`;
+  } else {
+    roundCount++;
+    locked=true;
+    $('result').innerHTML=`<span class="bad">✗ Falsch.</span><br>${correctText}<div class="steps">${explain()}</div>`;
+  }
   updateStats();
-}
-function explain(){
-  const b=task.base+'.';
-  return `1. Blockgröße = 256 − ${task.mask} = ${task.block}
-2. Subnetze beginnen bei: ${Array.from({length:256/task.block},(_,i)=>i*task.block).join(' / ')}
-3. Das IP-Oktett ${task.ip.split('.')[3]} liegt im Bereich ${task.network}–${task.broadcast}.
-4. Network = ${b}${task.network}
-5. Broadcast = ${b}${task.broadcast}
-6. Host-Bereich = ${b}${task.first} – ${b}${task.last}
-7. Nutzbare Hosts = ${task.block} − 2 = ${task.hosts}`;
+  updateProgress();
 }
 function hint(){
   if(!task)return;
   $('hint').classList.remove('hidden');
-  $('hint').textContent=`Hinweis: 256 − ${task.mask} = ${task.block}. Suche danach den Block, in dem das letzte Oktett (${task.ip.split('.')[3]}) liegt.`;
+  $('hint').textContent=`Hinweis: 256 − ${task.mask} = ${task.block}. Dann suchst du den Bereich, in dem das letzte Oktett (${task.ip.split('.')[3]}) liegt.`;
 }
 function updateStats(){
-  $('correct').textContent=correct;$('attempts').textContent=attempts;
+  $('correct').textContent=correct;
+  $('attempts').textContent=attempts;
   $('rate').textContent=attempts?Math.round(correct/attempts*100)+'%':'0%';
+  $('scoreBox').textContent=`${correct} / ${attempts}`;
 }
-$('newBtn').onclick=makeTask;$('checkBtn').onclick=check;$('hintBtn').onclick=hint;
+function updateProgress(){
+  $('progress').textContent=`(${Math.min(roundCount+1,roundTotal)} / ${roundTotal})`;
+  if(roundCount>=roundTotal){
+    $('result').innerHTML=`<b>Runde beendet.</b><br>Ergebnis: ${correct} von ${attempts} richtig (${attempts?Math.round(correct/attempts*100):0}%).<br><span class="small">Drücke „Neue Aufgabe“, um weiterzulernen.</span>`;
+  }
+}
+function resetRound(){
+  correct=0;attempts=0;roundCount=0;locked=false;updateStats();makeTask();
+}
+$('newBtn').onclick=makeTask;
+$('checkBtn').onclick=check;
+$('hintBtn').onclick=hint;
+$('resetBtn').onclick=resetRound;
 $('answer').addEventListener('keydown',e=>{if(e.key==='Enter')check()});
+$('answer2').addEventListener('keydown',e=>{if(e.key==='Enter')check()});
+$('mode').addEventListener('change',makeTask);
+$('difficulty').addEventListener('change',makeTask);
+$('roundSize').addEventListener('change',resetRound);
 makeTask();
-if (window.innerWidth <= 650) {
-  const hint = document.getElementById('installHint');
-  if (hint) hint.style.display = 'block';
-}
 </script>
-<script>
-if ("serviceWorker" in navigator && location.protocol !== "file:") {
-  navigator.serviceWorker.register("./service-worker.js").catch(()=>{});
-}
-</script>
-</body>
+
 </html>
